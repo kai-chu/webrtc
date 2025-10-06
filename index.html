@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WebRTC Codec, Resolution, and Bitrate Demo</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 20px;
+            background-color: #f4f4f4;
+            color: #333;
+        }
+        h1, h2 {
+            text-align: center;
+        }
+        .container {
+            max-width: 1200px;
+            margin: auto;
+            overflow: auto;
+            padding: 0 20px;
+        }
+        .video-container {
+            display: flex;
+            justify-content: space-around;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        video {
+            background: #222;
+            border: 2px solid #555;
+            width: 48%;
+            max-width: 560px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        .video-wrapper {
+            position: relative;
+            display: inline-block; /* To wrap the video element */
+        }
+        .video-overlay {
+            position: absolute;
+            top: 5px;
+            left: 5px;
+            background: rgba(0, 0, 0, 0.6);
+            color: white;
+            padding: 3px 6px;
+            border-radius: 3px;
+            font-size: 13px;
+        }
+        .controls {
+            background: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        .control-group {
+            margin: 10px 15px;
+            display: inline-block;
+            vertical-align: top;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        select, input, button {
+            padding: 8px 12px;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+            min-width: 150px;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            cursor: pointer;
+            border-color: #007bff;
+            transition: background-color 0.3s;
+        }
+        button:hover:not(:disabled) {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        #stats {
+            background: #e9ecef;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: 'Courier New', Courier, monospace;
+            white-space: pre-wrap;
+            text-align: left;
+            max-width: 600px;
+            margin: 20px auto;
+        }
+        #statusBar {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            padding: 10px 20px;
+            border-radius: 5px;
+            color: white;
+            z-index: 1000;
+            opacity: 0;
+            transition: opacity 0.5s;
+            pointer-events: none;
+        }
+        #statusBar.show {
+            opacity: 1;
+        }
+        #statusBar.error {
+            background-color: #d9534f; /* Red */
+        }
+        #supportedCodecsContainer {
+            text-align: center;
+            margin: 20px auto;
+            padding: 15px;
+            border-radius: 8px;
+            background: #e9ecef;
+            max-width: 800px;
+        }
+        #codecList {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-top: 10px;
+        }
+        .codec-badge {
+            background-color: #28a745;
+            color: white;
+            padding: 5px 10px;
+            border-radius: 12px;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>WebRTC Demo</h1>
+        <p style="text-align: center;">Test different codecs, resolutions, and bitrates for a peer-to-peer connection.</p>
+
+        <div id="supportedCodecsContainer">
+            <strong>Browser Supported Video Codecs</strong>
+            <div id="codecList">Loading...</div>
+        </div>
+
+        <div class="video-container">
+            <div>
+                <h2>Local Video</h2>
+                <div class="video-wrapper">
+                    <video id="localVideo" playsinline autoplay muted></video>
+                    <div id="localVideoResolution" class="video-overlay"></div>
+                </div>
+            </div>
+            <div>
+                <h2>Remote Video</h2>
+                <div class="video-wrapper">
+                    <video id="remoteVideo" playsinline autoplay></video>
+                    <div id="remoteVideoResolution" class="video-overlay"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="controls">
+            <div class="control-group">
+                <label for="resolution">Camera Resolution</label>
+                <select id="resolution">
+                    <option value="320x240">320x240 (QVGA)</option>
+                    <option value="640x480" selected>640x480 (VGA)</option>
+                    <option value="1280x720">1280x720 (HD)</option>
+                    <option value="1920x1080">1920x1080 (FHD)</option>
+                </select>
+            </div>
+            <div class="control-group">
+                <label for="sendResolution">Send Resolution</label>
+                <select id="sendResolution">
+                    <option value="1.0" selected>Original</option>
+                    <option value="2.0">Scale down 2x</option>
+                    <option value="4.0">Scale down 4x</option>
+                </select>
+            </div>
+            <div class="control-group">
+                <label for="frameRate">Frame Rate</label>
+                <select id="frameRate">
+                    <option value="0">Default</option>
+                    <option value="0">Default</option>
+                    <option value="15">15 fps</option>
+                    <option value="30" selected>30 fps</option>
+                </select>
+            </div>
+            <div class="control-group">
+                <label for="degradationPreference">Degradation Preference</label>
+                <select id="degradationPreference">
+                    <option value="maintain-resolution">Maintain Resolution</option>
+                    <option value="maintain-framerate" selected>Maintain Framerate</option>
+                    <option value="balanced">Balanced</option>
+                </select>
+            </div>
+            <div class="control-group">
+                <label for="scalabilityMode">Scalability Mode</label>
+                <select id="scalabilityMode">
+                    <option value="" selected>None</option>
+                    <option value="L1T2">L1T2</option>
+                    <option value="L1T3">L1T3</option>
+                    <option value="L2T1">L2T1</option>
+                    <option value="L2T2">L2T2</option>
+                    <option value="L2T3">L2T3</option>
+                    <option value="L3T3">L3T3</option>
+                </select>
+            </div>
+            <div class="control-group">
+                <label for="codec">Preferred Video Codec</label>
+                <select id="codec">
+                    <option value="VP8">VP8</option>
+                    <option value="VP9">VP9</option>
+                    <option value="H264">H.264</option>
+                    <option value="AV1">AV1</option>
+                </select>
+            </div>
+            <div class="control-group">
+                <label for="bitrate">Max Bitrate (kbps): <span id="bitrateValue">1000</span></label>
+                <input type="range" id="bitrate" min="100" max="4000" value="1000" step="100">
+            </div>
+            <div class="control-group" style="width: 90%; text-align: left; margin-top: 10px;">
+                <label for="constraintsInput">GetUserMedia Constraints (JSON)</label>
+                <textarea id="constraintsInput" rows="5" style="width: 100%; font-family: 'Courier New', Courier, monospace; box-sizing: border-box;"></textarea>
+            </div>
+            <div class="control-group" style="padding-top: 15px;">
+                <button id="startButton">1. Start Camera</button>
+                <button id="callButton" disabled>2. Call</button>
+                <button id="updateButton" disabled>Update</button>
+                <button id="hangupButton" disabled>Hang Up</button>
+            </div>
+        </div>
+
+        <h2>Connection Stats</h2>
+        <div id="stats">Statistics will appear here after the call starts...</div>
+    </div>
+
+    <!-- Status/Error Display -->
+    <div id="statusBar"></div>
+
+    <script>
+        'use strict';
+
+        // DOM elements
+        const startButton = document.getElementById('startButton');
+        const callButton = document.getElementById('callButton');
+        const hangupButton = document.getElementById('hangupButton');
+        const localVideo = document.getElementById('localVideo');
+        const remoteVideo = document.getElementById('remoteVideo');
+        const resolutionSelect = document.getElementById('resolution');
+        const sendResolutionSelect = document.getElementById('sendResolution');
+        const frameRateSelect = document.getElementById('frameRate');
+        const degradationPreferenceSelect = document.getElementById('degradationPreference');
+        const scalabilityModeSelect = document.getElementById('scalabilityMode');
+        const updateButton = document.getElementById('updateButton');
+        const codecSelect = document.getElementById('codec');
+        const bitrateSlider = document.getElementById('bitrate');
+        const bitrateValue = document.getElementById('bitrateValue');
+        const constraintsInput = document.getElementById('constraintsInput');
+        const statsDiv = document.getElementById('stats');
+        const localVideoResolutionLabel = document.getElementById('localVideoResolution');
+        const remoteVideoResolutionLabel = document.getElementById('remoteVideoResolution');
+        const statusBar = document.getElementById('statusBar');
+
+        // WebRTC variables
+        let localStream;
+        let pc1; // "local" peer connection
+        let pc2; // "remote" peer connection
+        let statsInterval;
+        let localResolution = '';
+
+        let statusTimeout;
+        // Set up event listeners
+        startButton.addEventListener('click', start);
+        callButton.addEventListener('click', call);
+        hangupButton.addEventListener('click', hangup);
+        updateButton.addEventListener('click', updateEncodingParameters);
+        bitrateSlider.addEventListener('input', () => {
+            bitrateValue.textContent = bitrateSlider.value;
+        });
+        frameRateSelect.addEventListener('change', () => {
+            updateConstraintsInput();
+        });
+        resolutionSelect.addEventListener('change', () => {
+            updateConstraintsInput();
+            if (localStream) { // Only restart if the camera is already running
+                start();
+            }
+        });
+
+        // Initialize constraints input
+        updateConstraintsInput();
+
+        // Run on page load to display supported codecs
+        (function displaySupportedCodecs() {
+            const codecListDiv = document.getElementById('codecList');
+            const codecSelect = document.getElementById('codec');
+            if (!codecListDiv) return;
+
+            // Use a timeout to ensure the DOM is fully ready
+            setTimeout(() => {
+                if (RTCRtpSender.getCapabilities) {
+                    const capabilities = RTCRtpSender.getCapabilities('video');
+                    if (capabilities && capabilities.codecs) {
+                        const supportedCodecs = new Set();
+                        codecListDiv.innerHTML = ''; // Clear "Loading..."
+                        codecSelect.innerHTML = ''; // Clear static options
+
+                        capabilities.codecs.forEach(codec => {
+                            // Filter out FEC, RTX, etc. and focus on primary codecs
+                            if (codec.mimeType.startsWith('video/') && !codec.mimeType.includes('rtx') && !codec.mimeType.includes('red') && !codec.mimeType.includes('ulpfec')) {
+                                const codecName = codec.mimeType.replace('video/', '');
+                                if (!supportedCodecs.has(codecName)) {
+                                    supportedCodecs.add(codecName);
+                                    const badge = document.createElement('span');
+                                    badge.className = 'codec-badge';
+                                    badge.textContent = codecName;
+                                    codecListDiv.appendChild(badge);
+                                }
+
+                                // Populate the select dropdown
+                                const option = document.createElement('option');
+                                // The value will be used to find the exact codec in SDP
+                                option.value = `${codec.mimeType}|${codec.sdpFmtpLine || ''}`;
+
+                                // Try to find profile information from the sdpFmtpLine
+                                const profileMatch = codec.sdpFmtpLine ? codec.sdpFmtpLine.match(/profile-level-id=([0-9a-fA-F]+)/) : null;
+                                const profile = profileMatch ? ` (profile: ${profileMatch[1]})` : '';
+                                
+                                // Check for non-standard hardware acceleration hints (works in Chrome)
+                                const hwAccel = (codec.id || '').toLowerCase().includes('hardware') ? ' [HW]' : ' [SW]';
+
+                                option.textContent = `${codecName}${profile}${hwAccel}`;
+                                codecSelect.appendChild(option);
+                            }
+                        });
+                    }
+                } else {
+                    codecListDiv.textContent = 'Cannot determine supported codecs.';
+                    codecSelect.innerHTML = '<option>N/A</option>';
+                }
+            }, 0);
+        })();
+
+        function updateConstraintsInput() {
+            const resolution = resolutionSelect.value.split('x');
+            const frameRate = parseInt(frameRateSelect.value, 10);
+            const constraints = {
+                audio: true,
+                video: {
+                    width: { ideal: parseInt(resolution[0], 10) },
+                    height: { ideal: parseInt(resolution[1], 10) }
+                }
+            };
+            if (frameRate > 0) {
+                constraints.video.frameRate = { ideal: frameRate, max: frameRate };
+            }
+            constraintsInput.value = JSON.stringify(constraints, null, 2);
+        }
+
+        function displayMessage(message, type = 'info') {
+            if (statusTimeout) {
+                clearTimeout(statusTimeout);
+            }
+            statusBar.textContent = message;
+            statusBar.className = type; // e.g., 'error'
+            statusBar.classList.add('show');
+
+            statusTimeout = setTimeout(() => {
+                statusBar.classList.remove('show');
+            }, 5000); // Hide after 5 seconds
+        }
+
+        function updateLocalVideoLabel(stream) {
+            if (!stream) {
+                localResolution = '';
+                localVideoResolutionLabel.textContent = '';
+                return;
+            }
+            const videoTrack = stream.getVideoTracks()[0];
+            if (videoTrack) {
+                // Use a short delay to ensure settings are available
+                setTimeout(() => {
+                    const settings = videoTrack.getSettings();
+                    localResolution = `${settings.width}x${settings.height}`;
+                    localVideoResolutionLabel.textContent = localResolution;
+                }, 500);
+            }
+        }
+
+        function stopStream() {
+            if (localStream) {
+                localStream.getTracks().forEach(track => {
+                    track.stop();
+                });
+                localStream = null;
+                localVideo.srcObject = null;
+                console.log('Local stream stopped.');
+            }
+        }
+        // 1. Start Camera
+        async function start() {
+            console.log('Requesting local stream');
+            let constraints;
+            try {
+                constraints = JSON.parse(constraintsInput.value);
+                console.log('Using custom constraints:', constraints);
+            } catch (e) {
+                // The alert was removed in a previous step, but the displayMessage call was left. This is correct.
+                displayMessage(`Invalid JSON in constraints: ${e.message}`, 'error');
+                return;
+            }
+            try {
+                stopStream(); // Stop any existing stream before getting a new one
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                console.log('Received new local stream');
+                localVideo.srcObject = stream;
+                localStream = stream;
+                updateLocalVideoLabel(stream);
+                callButton.disabled = false;
+
+                // If a call is active, replace the tracks on the peer connection
+                if (pc1) {
+                    console.log('Replacing tracks on active connection');
+                    const videoTrack = stream.getVideoTracks()[0];
+                    const audioTrack = stream.getAudioTracks()[0];
+                    const videoSender = pc1.getSenders().find(s => s.track && s.track.kind === 'video');
+                    const audioSender = pc1.getSenders().find(s => s.track && s.track.kind === 'audio');
+                    if (videoSender) await videoSender.replaceTrack(videoTrack);
+                    if (audioSender) await audioSender.replaceTrack(audioTrack);
+                }
+            } catch (e) {
+                // The alert was removed in a previous step, but the displayMessage call was left. This is correct.
+                displayMessage(`getUserMedia() error: ${e.name}. Your camera may not support the selected resolution.`, 'error');
+                stopStream(); // Clean up on error
+            }
+        }
+
+        // 2. Call
+        async function call() {
+            console.log('Starting call');
+            callButton.disabled = true;
+            hangupButton.disabled = false;
+            sendResolutionSelect.disabled = false;
+            updateButton.disabled = false;
+            codecSelect.disabled = true;
+
+            const configuration = {};
+            pc1 = new RTCPeerConnection(configuration);
+            console.log('Created local peer connection object pc1');
+            pc1.addEventListener('icecandidate', e => onIceCandidate(pc1, e));
+
+            pc2 = new RTCPeerConnection(configuration);
+            console.log('Created remote peer connection object pc2');
+            pc2.addEventListener('icecandidate', e => onIceCandidate(pc2, e));
+            pc2.addEventListener('track', gotRemoteStream);
+
+            localStream.getTracks().forEach(track => pc1.addTrack(track, localStream));
+            console.log('Added local stream to pc1');
+
+            try {
+                console.log('pc1 createOffer start');
+                const offer = await pc1.createOffer();
+                // Set initial encoding parameters before creating the full offer
+                await updateEncodingParameters();
+
+                await handleOffer(offer);
+            } catch (e) {
+                console.error('Failed to create session description:', e);
+                displayMessage(`Failed to create session description: ${e.name}`, 'error');
+            }
+        }
+
+        async function handleOffer(offer) {
+            console.log('Offer from pc1\n', offer.sdp);
+
+            // Prioritize the selected codec
+            offer.sdp = setSdpCodec(offer.sdp, codecSelect.value);
+            
+            console.log('Modified Offer from pc1\n', offer.sdp);
+
+            await pc1.setLocalDescription(offer);
+            await pc2.setRemoteDescription(offer);
+
+            const answer = await pc2.createAnswer();
+            await handleAnswer(answer);
+        }
+
+        async function handleAnswer(answer) {
+            console.log('Answer from pc2\n', answer.sdp);
+            await pc2.setLocalDescription(answer);
+            await pc1.setRemoteDescription(answer);
+        }
+
+        // 3. Hang Up
+        function hangup() {
+            console.log('Ending call');
+            stopStream();
+            if (statsInterval) {
+                clearInterval(statsInterval);
+                statsInterval = null;
+            }
+            pc1.close();
+            pc2.close();
+            pc1 = null;
+            pc2 = null;
+            hangupButton.disabled = true;
+            callButton.disabled = false;
+            resolutionSelect.disabled = false;
+            sendResolutionSelect.disabled = true;
+            updateButton.disabled = true;
+            codecSelect.disabled = false;
+            remoteVideo.srcObject = null;
+            updateLocalVideoLabel(null);
+            remoteVideoResolutionLabel.textContent = '';
+            statsDiv.innerHTML = "Call ended.";
+        }
+
+        function gotRemoteStream(e) {
+            if (remoteVideo.srcObject !== e.streams[0]) {
+                remoteVideo.srcObject = e.streams[0];
+                console.log('pc2 received remote stream');
+                // Start displaying stats once the remote stream is established
+                startStats();
+            }
+        }
+
+        async function onIceCandidate(pc, event) {
+            try {
+                const otherPc = (pc === pc1) ? pc2 : pc1;
+                await otherPc.addIceCandidate(event.candidate);
+                console.log(`${getPeerName(pc)} ICE candidate:\n${event.candidate ? event.candidate.candidate : '(null)'}`);
+            } catch (e) {
+                console.error(`Error adding received ice candidate for ${getPeerName(pc)}`, e);
+                displayMessage(`Error adding ICE candidate: ${e.name}`, 'error');
+            }
+        }
+
+        function getPeerName(pc) {
+            return (pc === pc1) ? 'pc1' : 'pc2';
+        }
+
+        // --- Encoding Parameter Manipulation ---
+
+        async function updateEncodingParameters() {
+            if (!pc1) return;
+
+            const videoSender = pc1.getSenders().find(s => s.track && s.track.kind === 'video');
+            if (!videoSender) {
+                console.log('No video sender found.');
+                return;
+            }
+
+            const parameters = videoSender.getParameters();
+            if (!parameters.encodings) {
+                parameters.encodings = [{}];
+            }
+
+            const scaleFactor = parseFloat(sendResolutionSelect.value);
+            const degradationPreference = degradationPreferenceSelect.value;
+            const maxFramerate = parseInt(frameRateSelect.value, 10);
+            const maxBitrate = parseInt(bitrateSlider.value, 10) * 1000; // convert kbps to bps
+            const scalabilityMode = scalabilityModeSelect.value;
+
+            parameters.encodings[0].scaleResolutionDownBy = scaleFactor;
+            parameters.encodings[0].degradationPreference = degradationPreference;
+            if (maxFramerate > 0) {
+                parameters.encodings[0].maxFramerate = maxFramerate;
+            } else {
+                delete parameters.encodings[0].maxFramerate;
+            }
+            if (maxBitrate > 0) {
+                parameters.encodings[0].maxBitrate = maxBitrate;
+            } else {
+                delete parameters.encodings[0].maxBitrate;
+            }
+            if (scalabilityMode) {
+                parameters.encodings[0].scalabilityMode = scalabilityMode;
+            } else {
+                delete parameters.encodings[0].scalabilityMode;
+            }
+            await videoSender.setParameters(parameters);
+            displayMessage(`Encoding parameters updated.`);
+        }
+
+        // --- SDP Manipulation Functions ---
+
+        function setSdpCodec(sdp, codec) {
+            const [mimeType, sdpFmtpLine] = codec.split('|');
+            const sdpLines = sdp.split('\r\n');
+            const mLineIndex = sdpLines.findIndex(line => line.startsWith('m=video'));
+            if (mLineIndex === -1) {
+                return sdp;
+            }
+
+            // Find the payload type for the exact codec profile
+            const mLine = sdpLines[mLineIndex];
+            const payloadTypes = mLine.match(/([0-9]+)/g).slice(1); // Get all payload types
+            let preferredPayloadType = '';
+
+            for (const pt of payloadTypes) {
+                const rtpmapLine = sdpLines.find(line => line.startsWith(`a=rtpmap:${pt}`) && line.includes(mimeType.replace('video/', '')));
+                const fmtpLine = sdpLines.find(line => line.startsWith(`a=fmtp:${pt}`) && line.includes(sdpFmtpLine));
+
+                // If sdpFmtpLine is present, we need to match both. Otherwise, just rtpmap is fine.
+                if (rtpmapLine && (!sdpFmtpLine || fmtpLine)) {
+                    preferredPayloadType = pt;
+                    break;
+                }
+            }
+
+            if (preferredPayloadType) {
+                const otherPayloadTypes = payloadTypes.filter(pt => pt !== preferredPayloadType);
+                const newMLine = `m=video ${mLine.split(' ')[1]} ${mLine.split(' ')[2]} ${preferredPayloadType} ${otherPayloadTypes.join(' ')}`;
+                sdpLines[mLineIndex] = newMLine;
+            }
+
+            return sdpLines.join('\r\n');
+        }
+
+        // --- Stats Display ---
+        function startStats() {
+            let lastResult;
+            statsInterval = setInterval(async () => {
+                if (!pc1 || !pc2) return;
+
+                const stats1 = await pc1.getStats();
+                const stats2 = await pc2.getStats();
+                let statsOutput = "";
+
+                stats1.forEach(report => {
+                    if (report.type === 'outbound-rtp' && report.kind === 'video') {
+                        statsOutput += `<h3>Outgoing Video Stream</h3>`;
+                        const now = report.timestamp;
+                        const bytes = report.bytesSent;
+                        
+                        if (lastResult && lastResult.has(report.id)) {
+                            const last = lastResult.get(report.id);
+                            // Calculate bitrate in kbps
+                            const bitrate = 8 * (bytes - last.bytesSent) / (now - last.timestamp);
+                            statsOutput += `<strong>Bitrate:</strong> ${bitrate.toFixed(2)} kbps<br/>`;
+
+                            // Calculate average QP
+                            if (report.qpSum && last.qpSum) {
+                                const qp = (report.qpSum - last.qpSum) / (report.framesEncoded - last.framesEncoded);
+                                statsOutput += `<strong>Avg QP:</strong> ${qp.toFixed(2)}<br/>`;
+                            }
+                        }
+
+                        statsOutput += `<strong>Packets Sent:</strong> ${report.packetsSent}<br/>`;
+                        statsOutput += `<strong>Bytes Sent:</strong> ${report.bytesSent}<br/>`;
+                        const codec = stats1.get(report.codecId);
+                        statsOutput += `<strong>Codec:</strong> ${codec?.mimeType}<br/>`;
+                        if (report.scalabilityMode) {
+                            statsOutput += `<strong>Scalability Mode:</strong> ${report.scalabilityMode}<br/>`;
+                        }
+                        statsOutput += `<strong>Frame Width:</strong> ${report.frameWidth}<br/>`;
+                        statsOutput += `<strong>Frame Height:</strong> ${report.frameHeight}<br/>`;
+                        statsOutput += `<strong>Frames Per Second:</strong> ${report.framesPerSecond}<br/>`;
+                        localVideoResolutionLabel.textContent = `${localResolution} | ${codec?.mimeType}`;
+                    }
+                });
+                
+                stats2.forEach(report => {
+                    if (report.type === 'inbound-rtp' && report.kind === 'video') {
+                        const codec = stats2.get(report.codecId);
+                        const resolution = `${report.frameWidth}x${report.frameHeight}`;
+                        remoteVideoResolutionLabel.textContent = `${resolution} | ${codec?.mimeType}`;
+                    }
+                });
+
+                lastResult = stats1;
+                statsDiv.innerHTML = statsOutput || "Waiting for stats...";
+
+            }, 1000);
+        }
+
+    </script>
+</body>
+</html>
