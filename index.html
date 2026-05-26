@@ -176,6 +176,10 @@
                 </select>
             </div>
             <div class="control-group">
+                <label for="alternateButton">Auto HD/FHD (2s)</label>
+                <button id="alternateButton" style="background-color: #28a745; border-color: #28a745; min-width: 150px;">Start Alternating</button>
+            </div>
+            <div class="control-group">
                 <label for="sendResolution">Send Resolution</label>
                 <select id="sendResolution">
                     <option value="1.0" selected>Original</option>
@@ -267,12 +271,15 @@
         const localVideoResolutionLabel = document.getElementById('localVideoResolution');
         const remoteVideoResolutionLabel = document.getElementById('remoteVideoResolution');
         const statusBar = document.getElementById('statusBar');
+        const alternateButton = document.getElementById('alternateButton');
 
         // WebRTC variables
         let localStream;
         let pc1; // "local" peer connection
         let pc2; // "remote" peer connection
         let statsInterval;
+        let alternateInterval;
+        let alternateState = false; // false = HD, true = FHD
         let localResolution = '';
 
         let statusTimeout;
@@ -280,6 +287,7 @@
         startButton.addEventListener('click', start);
         callButton.addEventListener('click', call);
         hangupButton.addEventListener('click', hangup);
+        alternateButton.addEventListener('click', toggleResolutionAlternator);
         updateButton.addEventListener('click', updateEncodingParameters);
         bitrateSlider.addEventListener('input', () => {
             bitrateValue.textContent = bitrateSlider.value;
@@ -347,6 +355,59 @@
                 }
             }, 0);
         })();
+
+        function toggleResolutionAlternator() {
+            if (alternateInterval) {
+                // Stop alternating
+                clearInterval(alternateInterval);
+                alternateInterval = null;
+                alternateButton.textContent = "Start Alternating";
+                alternateButton.style.backgroundColor = "#28a745";
+                alternateButton.style.borderColor = "#28a745";
+                displayMessage("Stopped alternating resolution.");
+            } else {
+                // Start alternating
+                if (!localStream) {
+                    displayMessage("Please start the camera first!", "error");
+                    return;
+                }
+                alternateButton.textContent = "Stop Alternating";
+                alternateButton.style.backgroundColor = "#dc3545";
+                alternateButton.style.borderColor = "#dc3545";
+                displayMessage("Started alternating resolution (HD/FHD every 2s).");
+
+                alternateInterval = setInterval(async () => {
+                    if (!localStream) {
+                        toggleResolutionAlternator(); // Safe stop if stream was terminated
+                        return;
+                    }
+                    const videoTrack = localStream.getVideoTracks()[0];
+                    if (!videoTrack) {
+                        displayMessage("No active video track found.", "error");
+                        return;
+                    }
+
+                    alternateState = !alternateState;
+                    const width = alternateState ? 1920 : 1280;
+                    const height = alternateState ? 1080 : 720;
+
+                    console.log(`Auto-alternating camera resolution to: ${width}x${height}`);
+                    try {
+                        await videoTrack.applyConstraints({
+                            width: { ideal: width },
+                            height: { ideal: height }
+                        });
+                        resolutionSelect.value = `${width}x${height}`;
+                        updateConstraintsInput();
+                        updateLocalVideoLabel(localStream);
+                        displayMessage(`Alternated resolution to: ${width}x${height}`);
+                    } catch (err) {
+                        console.error('applyConstraints failed:', err);
+                        displayMessage(`Failed to alternate resolution: ${err.name}`, 'error');
+                    }
+                }, 2000);
+            }
+        }
 
         function updateConstraintsInput() {
             const resolution = resolutionSelect.value.split('x');
@@ -505,6 +566,9 @@
             if (statsInterval) {
                 clearInterval(statsInterval);
                 statsInterval = null;
+            }
+            if (alternateInterval) {
+                toggleResolutionAlternator();
             }
             pc1.close();
             pc2.close();
