@@ -626,7 +626,8 @@
 
         // --- Stats Display ---
         function startStats() {
-            let lastResult;
+            let lastResult1;
+            let lastResult2;
             statsInterval = setInterval(async () => {
                 if (!pc1 || !pc2) return;
 
@@ -640,8 +641,8 @@
                         const now = report.timestamp;
                         const bytes = report.bytesSent;
                         
-                        if (lastResult && lastResult.has(report.id)) {
-                            const last = lastResult.get(report.id);
+                        if (lastResult1 && lastResult1.has(report.id)) {
+                            const last = lastResult1.get(report.id);
                             // Calculate bitrate in kbps
                             const bitrate = 8 * (bytes - last.bytesSent) / (now - last.timestamp);
                             statsOutput += `<strong>Bitrate:</strong> ${bitrate.toFixed(2)} kbps<br/>`;
@@ -657,6 +658,9 @@
                         statsOutput += `<strong>Bytes Sent:</strong> ${report.bytesSent}<br/>`;
                         const codec = stats1.get(report.codecId);
                         statsOutput += `<strong>Codec:</strong> ${codec?.mimeType}<br/>`;
+                        if (report.encoderImplementation) {
+                            statsOutput += `<strong>Encoder:</strong> ${report.encoderImplementation}<br/>`;
+                        }
                         if (report.scalabilityMode) {
                             statsOutput += `<strong>Scalability Mode:</strong> ${report.scalabilityMode}<br/>`;
                         }
@@ -669,13 +673,38 @@
                 
                 stats2.forEach(report => {
                     if (report.type === 'inbound-rtp' && report.kind === 'video') {
+                        statsOutput += `<h3>Incoming Video Stream</h3>`;
+                        const now = report.timestamp;
+                        const bytes = report.bytesReceived;
+                        
+                        if (lastResult2 && lastResult2.has(report.id)) {
+                            const last = lastResult2.get(report.id);
+                            // Calculate bitrate in kbps
+                            const bitrate = 8 * (bytes - last.bytesReceived) / (now - last.timestamp);
+                            statsOutput += `<strong>Bitrate:</strong> ${bitrate.toFixed(2)} kbps<br/>`;
+                        }
+
+                        statsOutput += `<strong>Packets Received:</strong> ${report.packetsReceived}<br/>`;
+                        statsOutput += `<strong>Packets Lost:</strong> ${report.packetsLost}<br/>`;
+                        statsOutput += `<strong>Jitter:</strong> ${report.jitter !== undefined ? (report.jitter * 1000).toFixed(3) + ' ms' : 'N/A'}<br/>`;
                         const codec = stats2.get(report.codecId);
+                        statsOutput += `<strong>Codec:</strong> ${codec?.mimeType}<br/>`;
+                        if (report.decoderImplementation) {
+                            statsOutput += `<strong>Decoder:</strong> ${report.decoderImplementation}<br/>`;
+                        }
+                        statsOutput += `<strong>Frame Width:</strong> ${report.frameWidth}<br/>`;
+                        statsOutput += `<strong>Frame Height:</strong> ${report.frameHeight}<br/>`;
+                        statsOutput += `<strong>Frames Decoded:</strong> ${report.framesDecoded || 0}<br/>`;
+                        statsOutput += `<strong>Frames Dropped:</strong> ${report.framesDropped || 0}<br/>`;
+                        statsOutput += `<strong>Frames Per Second:</strong> ${report.framesPerSecond || 0}<br/>`;
+
                         const resolution = `${report.frameWidth}x${report.frameHeight}`;
                         remoteVideoResolutionLabel.textContent = `${resolution} | ${codec?.mimeType}`;
                     }
                 });
 
-                lastResult = stats1;
+                lastResult1 = stats1;
+                lastResult2 = stats2;
                 statsDiv.innerHTML = statsOutput || "Waiting for stats...";
 
             }, 1000);
