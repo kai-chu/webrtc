@@ -172,7 +172,7 @@
                     <option value="320x240">320x240 (QVGA)</option>
                     <option value="640x480" selected>640x480 (VGA)</option>
                     <option value="1280x720">1280x720 (HD)</option>
-                    <option value="1920x1080">1920x1080 (FHD)</option>
+                    <option value="1920x1088">1920x1088 (FHD)</option>
                 </select>
             </div>
             <div class="control-group">
@@ -389,7 +389,7 @@
 
                     alternateState = !alternateState;
                     const width = alternateState ? 1920 : 1280;
-                    const height = alternateState ? 1080 : 720;
+                    const height = alternateState ? 1088 : 720;
 
                     console.log(`Auto-alternating camera resolution to: ${width}x${height}`);
                     try {
@@ -525,6 +525,53 @@
             localStream.getTracks().forEach(track => pc1.addTrack(track, localStream));
             console.log('Added local stream to pc1');
 
+            // Prioritize selected codec via transceiver setCodecPreferences (modern WebRTC)
+            try {
+                const videoTransceiver = pc1.getTransceivers().find(t => t.sender.track && t.sender.track.kind === 'video');
+                if (videoTransceiver && RTCRtpSender.getCapabilities) {
+                    const capabilities = RTCRtpSender.getCapabilities('video');
+                    const [preferredMimeType, preferredFmtp] = codecSelect.value.split('|');
+                    console.log(`Prioritizing codec via setCodecPreferences: ${preferredMimeType}`);
+
+                    const codecs = capabilities.codecs;
+                    const preferredCodecs = [];
+                    const otherCodecs = [];
+
+                    const isMatch = (codec) => {
+                        if (codec.mimeType.toLowerCase() !== preferredMimeType.toLowerCase()) {
+                            const isH265 = (name) => name.toLowerCase() === 'video/h265' || name.toLowerCase() === 'video/hevc';
+                            if (!(isH265(codec.mimeType) && isH265(preferredMimeType))) {
+                                return false;
+                            }
+                        }
+                        if (preferredFmtp && codec.sdpFmtpLine) {
+                            return codec.sdpFmtpLine.toLowerCase().includes(preferredFmtp.toLowerCase());
+                        }
+                        return true;
+                    };
+
+                    for (let i = 0; i < codecs.length; i++) {
+                        const codec = codecs[i];
+                        if (isMatch(codec)) {
+                            preferredCodecs.push(codec);
+                            // Keep associated RTX codec next to the primary codec to prevent BUNDLE collisions
+                            if (i + 1 < codecs.length && codecs[i + 1].mimeType.toLowerCase() === 'video/rtx') {
+                                preferredCodecs.push(codecs[i + 1]);
+                                i++;
+                            }
+                        } else {
+                            otherCodecs.push(codec);
+                        }
+                    }
+
+                    const sortedCodecs = [...preferredCodecs, ...otherCodecs];
+                    videoTransceiver.setCodecPreferences(sortedCodecs);
+                    console.log('setCodecPreferences successfully set preferred codecs:', preferredCodecs);
+                }
+            } catch (err) {
+                console.warn('Failed to set codec preferences via transceiver:', err);
+            }
+
             try {
                 console.log('pc1 createOffer start');
                 const offer = await pc1.createOffer();
@@ -657,6 +704,7 @@
 
         function setSdpCodec(sdp, codec) {
             const [mimeType, sdpFmtpLine] = codec.split('|');
+            console.log(`setSdpCodec: target mimeType = ${mimeType}, sdpFmtpLine = ${sdpFmtpLine}`);
             const sdpLines = sdp.split('\r\n');
             const mLineIndex = sdpLines.findIndex(line => line.startsWith('m=video'));
             if (mLineIndex === -1) {
@@ -669,12 +717,47 @@
             let preferredPayloadType = '';
 
             for (const pt of payloadTypes) {
-                const rtpmapLine = sdpLines.find(line => line.startsWith(`a=rtpmap:${pt}`) && line.includes(mimeType.replace('video/', '')));
-                const fmtpLine = sdpLines.find(line => line.startsWith(`a=fmtp:${pt}`) && line.includes(sdpFmtpLine));
+                const rtpmapLine = sdpLines.find(line => {
+                    if (!line.startsWith(`a=rtpmap:${pt}`)) {
+                        return false;
+                    }
+                    const parts = line.split(' ');
+                    if (parts.length < 2) return false;
+                    const codecPart = parts[1];
+                    const codecName = codecPart.split('/')[0] || '';
+                    const searchMime = mimeType.replace('video/', '');
+
+                    // Case-insensitive check of the exact name
+                    if (codecName.toLowerCase() === searchMime.toLowerCase()) {
+                        return true;
+                    }
+
+                    // Check for H265 / HEVC synonyms (H265, HEVC, H.265)
+                    const isH265 = (name) => {
+                        const n = name.toLowerCase();
+                        return n === 'h265' || n === 'hevc' || n === 'h.265';
+                    };
+                    if (isH265(codecName) && isH265(searchMime)) {
+                        return true;
+                    }
+
+                    return false;
+                });
+
+                const fmtpLine = sdpLines.find(line => {
+                    if (!line.startsWith(`a=fmtp:${pt}`)) {
+                        return false;
+                    }
+                    if (!sdpFmtpLine) {
+                        return true;
+                    }
+                    return line.toLowerCase().includes(sdpFmtpLine.toLowerCase());
+                });
 
                 // If sdpFmtpLine is present, we need to match both. Otherwise, just rtpmap is fine.
                 if (rtpmapLine && (!sdpFmtpLine || fmtpLine)) {
                     preferredPayloadType = pt;
+                    console.log(`setSdpCodec: found preferred payload type ${pt} matching ${mimeType}`);
                     break;
                 }
             }
@@ -683,6 +766,15 @@
                 const otherPayloadTypes = payloadTypes.filter(pt => pt !== preferredPayloadType);
                 const newMLine = `m=video ${mLine.split(' ')[1]} ${mLine.split(' ')[2]} ${preferredPayloadType} ${otherPayloadTypes.join(' ')}`;
                 sdpLines[mLineIndex] = newMLine;
+                console.log(`setSdpCodec: modified m=video line: ${newMLine}`);
+            } else {
+                console.warn(`setSdpCodec: could not find a payload type matching ${mimeType}`);
+                const codecName = mimeType.replace('video/', '').toUpperCase();
+                if (codecName === 'H265' || codecName === 'HEVC') {
+                    displayMessage(`Warning: H.265 (HEVC) was not found in the WebRTC offer. Please enable 'WebRTC H.265 video codec' in chrome://flags and ensure Hardware Acceleration is enabled in Chrome Settings.`, 'error');
+                } else {
+                    displayMessage(`Warning: Selected codec ${codecName} was not found in the browser's SDP offer and might not be supported.`, 'error');
+                }
             }
 
             return sdpLines.join('\r\n');
